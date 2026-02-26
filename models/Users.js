@@ -8,6 +8,9 @@ const UsersSchema = new Schema({
   email: String,
   hash: String,
   salt: String,
+  refreshToken: String,
+  resetPasswordToken: String,
+  resetPasswordExpires: Date
 });
 
 UsersSchema.methods.setPassword = function(password) {
@@ -20,23 +23,23 @@ UsersSchema.methods.validatePassword = function(password) {
   return this.hash === hash;
 };
 
-UsersSchema.methods.generateJWT = function() {
-  const today = new Date();
-  const expirationDate = new Date(today);
-  expirationDate.setDate(today.getDate() + 60);
-
+UsersSchema.methods.generateAccessToken = function() {
   return jwt.sign({
     email: this.email,
-    id: this._id,
-    exp: parseInt(expirationDate.getTime() / 1000, 10),
-  }, 'secret');
-}
+    id: this._id
+  }, process.env.JWT_SECRET || 'secret', { expiresIn: '15m' }); 
+};
+
+UsersSchema.methods.generateRefreshToken = function() {
+  return jwt.sign({
+    id: this._id
+  }, process.env.JWT_REFRESH_SECRET || 'secret_refresh', { expiresIn: '7d' });
+};
 
 UsersSchema.methods.toAuthJSON = function() {
   return {
     _id: this._id,
-    email: this.email,
-    token: this.generateJWT(),
+    email: this.email
   };
 };
 

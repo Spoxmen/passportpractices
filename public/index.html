@@ -1,0 +1,441 @@
+<html>
+<head>
+<script src="https://ajax.googleapis.com/ajax/libs/jquery/3.4.0/jquery.min.js"></script>
+<script>
+  // --- FUNKCJE LOGICZNE ---
+  let editingId = null; // Tu będziemy trzymać ID edytowanej książki
+
+  // Sprawdza stan sesji przy starcie i odświeżaniu (F5)
+  function checkSession() {
+    $.ajax({
+      url: "/api/users/me",
+      type: "GET",
+      xhrFields: { withCredentials: true },
+      success: function(response) {
+        $("#auth-panel").hide();
+        $("#guest-info").hide();
+        $("#user-info").show();
+        $("#user-selector").show();
+        $("#main-content").show();
+        $("#user-email").text(response.email);
+        loadUsers();
+        loadGifts();
+      },
+      error: function() {
+        $("#auth-panel").show();
+        $("#guest-info").show();
+        $("#user-info").hide();
+        $("#main-content").hide();
+        $("#user-selector").hide();
+      }
+    });
+  }
+
+  function loadUsers() {
+    // Pobieramy Twój mail z nagłówka i usuwamy ewentualne spacje
+    const myEmail = $("#user-email").text().trim(); 
+
+    $.ajax({
+      url: "/api/users",
+      type: "GET",
+      xhrFields: { withCredentials: true },
+      success: function(response) {
+        console.log("Użytkownicy z bazy:", response); 
+        let html = "";
+        
+        response.forEach(u => {
+          // Logika: Jeśli mail użytkownika z bazy jest taki sam jak mój -> NIE RÓB przycisku
+          if (u.email.trim() === myEmail) {
+              return; 
+          }
+          // Dla wszystkich innych tworzymy przycisk
+          html += `<button class="user-link" data-id="${u._id}" style="padding: 5px 10px; cursor: pointer; border: 1px solid #ccc; background: white; border-radius: 4px; margin-right: 5px;">${u.email}</button>`;
+        });
+        
+        $("#users-list").html(html || "Brak innych użytkowników");
+      }
+    });
+  }
+
+  function loadGifts(uid = "") {
+    const url = uid ? `/api/gifts?userId=${uid}` : "/api/gifts";
+    // Ukrywamy przycisk dodawania, jeśli to nie nasza lista
+    uid ? $("#btn2").hide() : $("#btn2").show();
+
+    $.ajax({
+      url: url,
+      type: "GET",
+      xhrFields: { withCredentials: true },
+      success: function(response) {
+        $("#tab1").show();
+        $("#tab1 tr:not(#row1)").remove();
+        response.forEach(el => {
+          // Logika przycisku Akcji
+          let actionBtn = "";
+          if (el.isOwner) {
+              actionBtn = ""; 
+          } else {
+              actionBtn = el.isReserved ? 
+                (el.reservedByMe ? 
+                  `<button class="unreserve-btn" data-id="${el.id}" style="background:#ffcccc;">Zrezygnuj</button>` : 
+                  `<span style="color:red; font-weight:bold;">Zarezerwowane</span>`
+                ) :
+                `<button class="reserve-btn" data-id="${el.id}" style="background:#ccffcc;">Zaklep</button>`;
+          }
+
+          // Przywrócona logika przycisku USUŃ i EDYTUJ (Tylko dla właściciela)
+          let ownerBtns = el.isOwner ? `
+            <button class="edit-btn" data-id="${el.id}" style="background:#ffcc00; margin-left:5px;">Edytuj</button>
+            <button class="delete-btn" data-id="${el.id}" style="background:#ff4444; color:white; margin-left:5px;">Usuń</button>
+          ` : "";
+
+          $("#row1").after(`<tr>
+            <td>${el.id.substring(0,5)}</td><td>${el.author}</td><td>${el.title}</td><td>${el.date}</td><td>${el.publisher}</td><td>${el.availability}</td>
+            <td>${actionBtn}${ownerBtns}</td>
+          </tr>`);
+        });
+      }
+    });
+  }
+
+  // --- OBSŁUGA ZDARZEŃ ---
+  $(document).ready(function() {
+    checkSession(); // Start aplikacji
+
+    // Logowanie 
+    $("#btn-login").click(function() {
+      const data = { user: { email: $("#email").val(), password: $("#password").val() } };
+      $.ajax({
+        url: "/api/users/login",
+        type: "POST",
+        contentType: "application/json",
+        data: JSON.stringify(data),
+        xhrFields: { withCredentials: true },
+        success: function() { checkSession(); },
+        error: function() { alert("Błąd logowania!"); }
+      });
+    });
+
+    // POŁĄCZONA WALIDACJA I WYSYŁANIE REJESTRACJI
+    $("#btn-register").click(function() {
+        const email = $("#email").val();
+        const pass = $("#password").val();
+        const confirm = $("#password-confirm").val();
+if ($("#password-confirm").is(":hidden")) { $("#password-confirm").fadeIn(); return; }
+        if (pass !== confirm) {
+            alert("Hasła nie są identyczne!");
+            return;
+        }
+        if (pass.length < 6) {
+            alert("Hasło musi mieć min. 6 znaków!");
+            return;
+        }
+
+        const data = { user: { email: email, password: pass } };
+        $.ajax({ 
+            url: "/api/users", 
+            type: "POST", 
+            contentType: "application/json", 
+            data: JSON.stringify(data), 
+            success: function() { 
+                alert("Założono konto! Możesz się teraz zalogować."); 
+                $("#password-confirm").hide();
+                $("#password-confirm").val("");
+            },
+            error: function(err) {
+                alert("Błąd rejestracji: " + (err.responseJSON ? err.responseJSON.error : "Nieznany błąd"));
+            }
+        });
+    });
+
+    // Wylogowanie
+    $("#btn-logout").click(function() {
+      $.ajax({ url: "/api/users/logout", type: "POST", xhrFields: { withCredentials: true }, success: function() { location.reload(); } });
+    });
+
+    // --- ODZYSKIWANIE HASŁA ---
+    // 1. Kliknięcie "Przypomnij hasło"
+    $("#btn-forgot").click(function() {
+        const email = $("#email").val().trim();
+        if (!email) {
+            alert("Wpisz swój e-mail w polu logowania, abyśmy wiedzieli, komu zresetować hasło!");
+            return;
+        }
+
+        $.ajax({
+            url: "/api/users/forgot-password",
+            type: "POST",
+            contentType: "application/json",
+            data: JSON.stringify({ email: email }),
+            success: function(response) {
+                alert(response.message + " (Zobacz konsolę serwera!)");
+                $("#reset-password-panel").fadeIn(); 
+            },
+            error: function() {
+                alert("Wystąpił błąd komunikacji z serwerem.");
+            }
+        });
+    });
+
+    // 2. Kliknięcie "Zmień hasło" (Wysyłanie tokenu - POPRAWIONE WYSYŁANIE 3 PÓL)
+    $("#btn-reset-confirm").click(function() {
+        const token = $("#reset-token").val().trim();
+        const newPassword = $("#new-password").val();
+        const newPasswordConfirm = $("#new-password-confirm").val();
+
+        if (!token || !newPassword || !newPasswordConfirm) {
+            alert("Musisz podać token i wypełnić oba pola nowego hasła!");
+            return;
+        }
+
+        $.ajax({
+            url: "/api/users/reset-password",
+            type: "POST",
+            contentType: "application/json",
+            data: JSON.stringify({ token: token, newPassword: newPassword, newPasswordConfirm: newPasswordConfirm }),
+            success: function(response) {
+                alert(response.message);
+                $("#reset-password-panel").hide();
+                $("#reset-token").val("");
+                $("#new-password").val("");
+                $("#new-password-confirm").val("");
+                $("#password").val(""); 
+            },
+            error: function(err) {
+                alert("Błąd: " + (err.responseJSON ? err.responseJSON.error : "Nieprawidłowy token lub hasła nie pasują"));
+            }
+        });
+    });
+
+    // 3. Przycisk "Anuluj"
+    $("#btn-reset-cancel").click(function() {
+        $("#reset-password-panel").hide();
+        $("#reset-token").val("");
+        $("#new-password").val("");
+        $("#new-password-confirm").val("");
+    });
+
+    // --- NAWIGACJA ---
+    // 1. Obsługa kliknięcia w innych użytkowników
+    $(document).on("click", ".user-link", function(e) {
+        e.preventDefault();
+        $(".user-link").css({"background": "white", "font-weight": "normal"});
+        $(this).css({"background": "#e3f2fd", "font-weight": "bold"});
+        loadGifts($(this).data("id"));
+    });
+
+    // 2. Obsługa przycisku "Pokaż moją listę" oraz "Wczytaj listę"
+    $("#btn-my-list, #btn1").click(function() { 
+        $(".user-link").css({"background": "white", "font-weight": "normal"});
+        loadGifts(); 
+    });
+
+    // Akcje na prezentach (Zaklepywanie / Odwoływanie)
+    $(document).on("click", ".reserve-btn, .unreserve-btn", function() {
+      const giftId = $(this).data("id");
+      const method = $(this).hasClass("reserve-btn") ? "POST" : "DELETE";
+      $.ajax({
+        url: `/api/gifts/${giftId}/reserve`,
+        type: method,
+        xhrFields: { withCredentials: true },
+        success: function() { 
+          const activeId = $(".user-link").filter(function() { return $(this).css("font-weight") === "700" || $(this).css("font-weight") === "bold"; }).data("id");
+          loadGifts(activeId || "");
+        }
+      });
+    });
+
+    $(document).on("click", ".delete-btn", function() {
+      if (!confirm("Na pewno usunąć?")) return;
+      $.ajax({
+        url: `/api/gifts/${$(this).data("id")}`,
+        type: "DELETE",
+        xhrFields: { withCredentials: true },
+        success: function() { loadGifts(); }
+      });
+    });
+
+    // Formularz dodawania
+    $("#btn2").click(function() { 
+        editingId = null;           // resetujemy ID
+        $("#btn3").text("Wyślij");  
+        $("#tab2 input").val("");   
+        $("#tab1").hide(); 
+        $("#tab2").show(); 
+    });
+
+    $(document).on("click", ".edit-btn", function() {
+      editingId = $(this).data("id");
+      const row = $(this).closest("tr");
+
+      $("#author1").val(row.find("td:eq(1)").text());
+      $("#title1").val(row.find("td:eq(2)").text());
+      $("#date1").val(row.find("td:eq(3)").text());
+      $("#publisher1").val(row.find("td:eq(4)").text());
+      $("#availability1").val(row.find("td:eq(5)").text());
+
+      $("#btn3").text("Zapisz zmiany"); 
+      $("#tab1").hide();
+      $("#tab2").show();
+    });
+
+    // POPRAWIONY FORMAT WYSYŁANIA DANYCH DO API (Zwykły JSON)
+    $("#btn3").click(function() {
+        const dane = { 
+            author: $("#author1").val(), 
+            title: $("#title1").val(), 
+            date: $("#date1").val(), 
+            publisher: $("#publisher1").val(), 
+            availability: $("#availability1").val() 
+        };
+
+        const method = editingId ? "PUT" : "POST";
+        const url = editingId ? `/api/gifts/${editingId}` : "/api/gifts";
+
+        $.ajax({
+            url: url,
+            type: method,
+            contentType: "application/json",
+            data: JSON.stringify(dane),
+            xhrFields: { withCredentials: true },
+            success: function() {
+                $("#tab2").hide();
+                editingId = null; 
+                $("#btn3").text("Wyślij");
+                loadGifts(); 
+            },
+            error: function(err) {
+                alert("Błąd zapisu: " + (err.responseJSON ? err.responseJSON.error : "Nieznany błąd"));
+            }
+        });
+    });
+
+    // 1. Podgląd hasła 
+    $(document).on("change", "#show-pass", function() {
+        const type = $(this).is(":checked") ? "text" : "password";
+        $("#password, #password-confirm, #new-password, #new-password-confirm").attr("type", type);
+    });
+
+     // Obsługa błędów sesji na całym dokumencie
+    $(document).ajaxError(function(event, jqXHR) {
+        if (jqXHR.status === 401) {
+            console.warn("Brak aktywnej sesji lub sesja wygasła.");
+            $("#user-info").hide();
+            $("#user-selector").hide();
+            $("#main-content").hide();    
+            $("#guest-info").show();
+            $("#auth-panel").show();
+            $("#tab1").hide();
+            sessionStorage.removeItem("isLoggedIn");
+        }
+    });
+  });
+</script>
+<link rel="stylesheet" type="text/css" href="stylesheets/style.css">
+<style>
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+}
+
+.column {
+  float: left;
+  width: 15%;
+  padding: 15px;
+}
+.row:after {
+  content: "";
+  display: table;
+  clear: both;
+}
+
+</style>
+</head>
+<body>
+    <div class="row">
+        <div class="column"></div>
+
+        <div class="column" style="background-color: #DEE6FF; padding: 20px; text-align: justify; width: 69%;">
+            
+<div id="auth-panel" style="background: #f0f0f0; padding: 15px; border: 1px solid #ccc; margin-bottom: 20px;">
+    <div id="login-form">
+        <input type="email" id="email" placeholder="E-mail">
+        <input type="password" id="password" placeholder="Hasło">
+        <input type="password" id="password-confirm" placeholder="Powtórz hasło" style="display:none;">
+        
+
+        <button id="btn-login">Zaloguj się</button>
+        <button id="btn-register">Zarejestruj się</button>
+        <button id="btn-forgot" style="margin-left: 10px; background: #ffcc00; cursor: pointer;">Przypomnij hasło</button>
+    </div>
+    
+    <div id="reset-password-panel" style="display: none; margin-top: 15px; padding-top: 15px; border-top: 1px dashed #999;">
+        <strong style="color: #d9534f;">Odzyskiwanie hasła</strong><br>
+        <input type="text" id="reset-token" placeholder="Wklej Token">
+        <input type="password" id="new-password" placeholder="Nowe hasło">
+        <input type="password" id="new-password-confirm" placeholder="Powtórz nowe hasło">
+        <div style="margin: 5px 0; font-size: 12px;">
+        <input type="checkbox" id="show-pass"> Pokaż hasła
+        </div>
+        <button id="btn-reset-confirm" style="background: #5cb85c; color: white;">Zmień hasło</button>
+        <button id="btn-reset-cancel">Anuluj</button>
+    </div>
+</div>
+            <div id="user-info" style="display: none; padding: 15px; background: #e0f7fa; border: 1px solid #ccc; margin-bottom: 20px;">
+    Zalogowany jako: <strong id="user-email"></strong> 
+    <button id="btn-logout" style="margin-left: 10px; background: #ff4444; color: white; cursor: pointer;">Wyloguj</button>
+</div>
+            <div id="guest-info" style="text-align: center; padding: 40px; background: white; border: 1px dashed #999; margin-bottom: 20px;">
+                <h2>Witaj na liście książek!</h2>
+                <p>Zaloguj się lub zarejestruj, aby przeglądać listy i zaklepywać prezenty.</p>
+            </div>
+
+            <div id="user-selector" style="display: none; margin-bottom: 20px; padding: 15px; border: 1px solid #ccc; background: #f9f9f9;">
+                <strong>Zobacz listę użytkownika:</strong>
+    
+                 <div id="users-list" style="margin-top: 10px; display: flex; flex-wrap: wrap; gap: 8px;">
+        Pobieranie listy osób...
+                 </div>
+                 <button id="btn-my-list" style="margin-top: 15px; background: #ccffcc; padding: 8px 15px; border: 1px solid #4CAF50; font-weight: bold; cursor: pointer;">
+        Pokaż moją listę
+                 </button>
+</div>
+
+            <div id="main-content" style="display: none;"> 
+                <h1 align="center">Lista pożądanych książek</h1><br>
+                <div style="margin-bottom: 15px;">
+                    <button id="btn1">Wczytaj listę</button>
+                    <button id="btn2">Wprowadź nową pozycję</button>
+                </div>
+
+                <table id="tab1" style="border: 0.5mm ridge black; background: white;" width="100%">
+                    <tr id="row1">
+                        <td>LP.</td>
+                        <td>Autor</td>
+                        <td>Tytuł</td>
+                        <td>Rok wydania</td>
+                        <td>Wydawnictwo</td>
+                        <td>Dostępność</td>
+                        <td>Akcja</td>
+                    </tr>
+                </table><br>
+
+                <table id="tab2" style="border: 0.5mm ridge black; display: none; background: #fffde7;" width="100%">
+                    <tr><td>Autor:</td><td><input type="text" id="author1"></td></tr>
+                    <tr><td>Tytuł:</td><td><input type="text" id="title1"></td></tr>
+                    <tr><td>Data wydania:</td><td><input type="text" id="date1"></td></tr>
+                    <tr><td>Wydawca:</td><td><input type="text" id="publisher1"></td></tr>
+                    <tr><td>Dostępność:</td><td><input type="text" id="availability1"></td></tr>
+                    <tr>
+                        <th colspan="2">
+                            <button id="btn3" style="padding: 10px 20px;">Wyślij</button>
+                        </th>
+                    </tr>
+                    <tr><th id="result" colspan="2"></th></tr>
+</table>
+        </div> </div> <div class="column"></div> </div> </body>
+</html>
