@@ -1,11 +1,12 @@
+require('dotenv').config();
 const express = require('express');
 const path = require('path');
 const bodyParser = require('body-parser');
-const session = require('express-session');
 const cors = require('cors');
 const mongoose = require('mongoose');
 const errorHandler = require('errorhandler');
 const dbConfig = require('./config/database.config.js');
+const cookieParser = require('cookie-parser');
 
 //Configure mongoose's promise to global promise
 mongoose.promise = global.Promise;
@@ -17,20 +18,23 @@ const isProduction = process.env.NODE_ENV === 'production';
 const app = express();
 
 //Configure our app
+app.use(cookieParser());
 app.use(cors());
 app.use(require('morgan')('dev'));
 app.use(bodyParser.urlencoded({ extended: false }));
 app.use(bodyParser.json());
 app.use(express.static(path.join(__dirname, 'public')));
-app.use(session({ secret: 'passport-tutorial', cookie: { maxAge: 60000 }, resave: false, saveUninitialized: false }));
+
 
 if(!isProduction) {
   app.use(errorHandler());
 }
 
+mongoose.set('debug', true);
+
 mongoose.connect(dbConfig.url, {
     useNewUrlParser: true, 
-    debug: true
+    useUnifiedTopology: true // <--- Dodana flaga naprawiająca drugi błąd
 }).then(() => {
     console.log("Successfully connected to the database");    
 }).catch(err => {
@@ -40,30 +44,21 @@ mongoose.connect(dbConfig.url, {
 
 //Models
 require('./models/Users');
+require('./models/GiftItems');
 require('./config/passport');
 app.use(require('./routes'));
 
-//Error handlers & middlewares
-if(!isProduction) {
-  app.use((err, req, res) => {
-    res.status(err.status || 500);
+app.use((err, req, res, next) => { // 4 argumenty!
+  if (err.name === 'UnauthorizedError') {
+    return res.status(401).json({ errors: { message: "Brak autoryzacji - zaloguj się" } });
+  }
 
-    res.json({
-      errors: {
-        message: err.message,
-        error: err,
-      },
-    });
-  });
-}
-
-app.use((err, req, res) => {
+  console.error("KRYTYCZNY BŁĄD SERWERA:", err); 
   res.status(err.status || 500);
-
   res.json({
     errors: {
       message: err.message,
-      error: {},
+      error: isProduction ? {} : err,
     },
   });
 });
