@@ -50,11 +50,13 @@ router.post('/login', (req, res, next) => {
       res.cookie('accessToken', accessToken, { 
         httpOnly: true, 
         secure: process.env.NODE_ENV === 'production', 
+        sameSite: 'Lax',
         maxAge: 15 * 60 * 1000 
       });
       res.cookie('refreshToken', refreshToken, { 
         httpOnly: true, 
         secure: process.env.NODE_ENV === 'production', 
+        sameSite: 'Lax',
         maxAge: 7 * 24 * 60 * 60 * 1000 
       });
 
@@ -85,8 +87,8 @@ router.post('/refresh', async (req, res) => {
     user.refreshToken = newRefreshToken;
     await user.save();
 
-    res.cookie('accessToken', newAccessToken, { httpOnly: true, secure: process.env.NODE_ENV === 'production', maxAge: 15 * 60 * 1000 });
-    res.cookie('refreshToken', newRefreshToken, { httpOnly: true, secure: process.env.NODE_ENV === 'production', maxAge: 7 * 24 * 60 * 60 * 1000 });
+    res.cookie('accessToken', newAccessToken, { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'Lax', maxAge: 15 * 60 * 1000 });
+    res.cookie('refreshToken', newRefreshToken, { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'Lax', maxAge: 7 * 24 * 60 * 60 * 1000 });
 
     return res.json({ message: "Sesja pomyślnie odświeżona" });
   } catch (err) {
@@ -104,8 +106,8 @@ router.post('/logout', auth.required, async (req, res) => {
       await user.save();
     }
 
-    res.clearCookie('accessToken');
-    res.clearCookie('refreshToken');
+res.clearCookie('accessToken', { sameSite: 'Lax' });
+res.clearCookie('refreshToken', { sameSite: 'Lax' });
     
     return res.json({ message: "Wylogowano pomyślnie" });
   } catch (err) {
