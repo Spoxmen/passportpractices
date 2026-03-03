@@ -31,35 +31,65 @@
     });
   }
 
-  function loadUsers() {
-    // Pobieramy Twój mail z nagłówka i usuwamy ewentualne spacje
+function loadUsers() {
+    // 1. Pobieramy Twój mail (zostaje bez zmian)
     const myEmail = $("#user-email").text().trim(); 
 
     $.ajax({
-      url: "/api/users",
-      type: "GET",
-      xhrFields: { withCredentials: true },
-      success: function(response) {
-        console.log("Użytkownicy z bazy:", response); 
-        let html = "";
-        
-        response.forEach(u => {
-          // Logika: Jeśli mail użytkownika z bazy jest taki sam jak mój -> NIE RÓB przycisku
-          if (u.email.trim() === myEmail) {
-              return; 
-          }
-          // Dla wszystkich innych tworzymy przycisk
-          html += `<button class="user-link" data-id="${u._id}" style="padding: 5px 10px; cursor: pointer; border: 1px solid #ccc; background: white; border-radius: 4px; margin-right: 5px;">${u.email}</button>`;
-        });
-        
-        $("#users-list").html(html || "Brak innych użytkowników");
-      }
-    });
-  }
+        url: "/api/users",
+        type: "GET",
+        xhrFields: { withCredentials: true }, // Ważne dla ciasteczek!
+        success: function(response) {
+            console.log("Użytkownicy z bazy:", response); 
+            
+            // 2. Przygotowujemy kontener (bezpieczniejsze podejście)
+            let $container = $("#users-list");
+            $container.empty(); // Czyścimy stare przyciski
 
-  function loadGifts(uid = "") {
+            // 3. Sprawdzamy, czy w ogóle mamy kogoś na liście
+            if (!response || response.length === 0) {
+                $container.text("Brak innych użytkowników");
+                return;
+            }
+            
+            response.forEach(u => {
+                // Jeśli mail użytkownika z bazy jest taki sam jak mój -> pomiń
+                if (u.email.trim() === myEmail) {
+                    return; 
+                }
+
+                // 4. Budujemy przycisk jako obiekt jQuery (OCHRONA XSS)
+                const $btn = $("<button>")
+                    .addClass("user-link")
+                    .attr("data-id", u._id)
+                    .css({ 
+                        "padding": "5px 10px", 
+                        "cursor": "pointer", 
+                        "border": "1px solid #ccc", 
+                        "background": "white", 
+                        "border-radius": "4px", 
+                        "margin-right": "5px" 
+                    })
+                    .text(u.email); // KLUCZOWE: .text() czyści ewentualny złośliwy kod
+
+                $container.append($btn);
+            });
+
+            // Jeśli po przefiltrowaniu (wycięciu siebie) kontener jest pusty
+            if ($container.is(':empty')) {
+                $container.text("Brak innych użytkowników");
+            }
+        },
+        error: function() {
+            $("#users-list").text("Nie udało się pobrać listy użytkowników.");
+        }
+    });
+}
+
+function loadGifts(uid = "") {
     const url = uid ? `/api/gifts?userId=${uid}` : "/api/gifts";
-    // Ukrywamy przycisk dodawania, jeśli to nie nasza lista
+    
+    // Ukrywamy przycisk dodawania, jeśli przeglądamy listę kogoś innego
     uid ? $("#btn2").hide() : $("#btn2").show();
 
     $.ajax({
@@ -68,35 +98,86 @@
       xhrFields: { withCredentials: true },
       success: function(response) {
         $("#tab1").show();
+        
+        // Czyścimy stare wiersze, zostawiając tylko nagłówek (#row1)
         $("#tab1 tr:not(#row1)").remove();
+
         response.forEach(el => {
-          // Logika przycisku Akcji
-          let actionBtn = "";
-          if (el.isOwner) {
-              actionBtn = ""; 
-          } else {
-              actionBtn = el.isReserved ? 
-                (el.reservedByMe ? 
-                  `<button class="unreserve-btn" data-id="${el.id}" style="background:#ffcccc;">Zrezygnuj</button>` : 
-                  `<span style="color:red; font-weight:bold;">Zarezerwowane</span>`
-                ) :
-                `<button class="reserve-btn" data-id="${el.id}" style="background:#ccffcc;">Zaklep</button>`;
+          // Tworzymy nowy wiersz w pamięci
+          const $tr = $("<tr>");
+
+          // 1. DANE TEKSTOWE - Ochrona przed XSS poprzez użycie .text()
+          $tr.append($("<td>").text(el.id.substring(0,5)));
+          $tr.append($("<td>").text(el.author));
+          $tr.append($("<td>").text(el.title));
+          $tr.append($("<td>").text(el.date));
+          $tr.append($("<td>").text(el.publisher));
+          $tr.append($("<td>").text(el.availability));
+
+          // 2. PRZYCISKI I STATUSY
+          const $actionTd = $("<td>");
+
+          if (!el.isOwner) {
+            // Logika dla gościa / innego użytkownika
+            if (el.isReserved) {
+              if (el.reservedByMe) {
+                // Przycisk "Zrezygnuj"
+                $actionTd.append(
+                  $("<button>")
+                    .addClass("unreserve-btn")
+                    .attr("data-id", el.id)
+                    .css("background", "#ffcccc")
+                    .text("Zrezygnuj")
+                );
+              } else {
+                // Napis "Zarezerwowane"
+                $actionTd.append(
+                  $("<span>")
+                    .css({ "color": "red", "font-weight": "bold" })
+                    .text("Zarezerwowane")
+                );
+              }
+            } else {
+              // Przycisk "Zaklep"
+              $actionTd.append(
+                $("<button>")
+                  .addClass("reserve-btn")
+                  .attr("data-id", el.id)
+                  .css("background", "#ccffcc")
+                  .text("Zaklep")
+              );
+            }
           }
 
-          // Przywrócona logika przycisku USUŃ i EDYTUJ (Tylko dla właściciela)
-          let ownerBtns = el.isOwner ? `
-            <button class="edit-btn" data-id="${el.id}" style="background:#ffcc00; margin-left:5px;">Edytuj</button>
-            <button class="delete-btn" data-id="${el.id}" style="background:#ff4444; color:white; margin-left:5px;">Usuń</button>
-          ` : "";
+          // Przyciski edycji i usuwania tylko dla właściciela
+          if (el.isOwner) {
+            $actionTd.append(
+              $("<button>")
+                .addClass("edit-btn")
+                .attr("data-id", el.id)
+                .css({ "background": "#ffcc00", "margin-left": "5px" })
+                .text("Edytuj")
+            );
+            $actionTd.append(
+              $("<button>")
+                .addClass("delete-btn")
+                .attr("data-id", el.id)
+                .css({ "background": "#ff4444", "color": "white", "margin-left": "5px" })
+                .text("Usuń")
+            );
+          }
 
-          $("#row1").after(`<tr>
-            <td>${el.id.substring(0,5)}</td><td>${el.author}</td><td>${el.title}</td><td>${el.date}</td><td>${el.publisher}</td><td>${el.availability}</td>
-            <td>${actionBtn}${ownerBtns}</td>
-          </tr>`);
+          $tr.append($actionTd);
+          
+          // Wrzucamy gotowy, bezpieczny wiersz na koniec tabeli
+          $("#tab1").append($tr);
         });
+      },
+      error: function() {
+        console.error("Błąd podczas pobierania prezentów.");
       }
     });
-  }
+}
 
   // --- OBSŁUGA ZDARZEŃ ---
   $(document).ready(function() {

@@ -32,10 +32,7 @@ if(!isProduction) {
 
 mongoose.set('debug', true);
 
-mongoose.connect(dbConfig.url, {
-    useNewUrlParser: true, 
-    useUnifiedTopology: true // <--- Dodana flaga naprawiająca drugi błąd
-}).then(() => {
+mongoose.connect(dbConfig.url).then(() => {
     console.log("Successfully connected to the database");    
 }).catch(err => {
     console.log('Could not connect to the database. Exiting now...', err);
