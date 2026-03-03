@@ -6,17 +6,19 @@ const jwt = require('jsonwebtoken');
 const Users = mongoose.model('Users');
 const crypto = require('crypto');
 
-// REJESTRACJA: POST /api/users
+// Ta funkcja obsługuje ścieżkę POST /api/users (Rejestracja)
 router.post('/', async (req, res, next) => {
   try {
-    // ZABEZPIECZENIE: Sprawdzamy czy obiekt user w ogóle istnieje w żądaniu
+    // 1. ZABEZPIECZENIE: Sprawdzamy czy w ogóle wysłano obiekt 'user'
+    // To chroni serwer przed błędem, gdyby ktoś wysłał puste żądanie.
     if (!req.body.user) {
       return res.status(422).json({ error: "Brak danych użytkownika." });
     }
 
     const { email, password } = req.body.user;
 
-    // WALIDACJA:
+    // 2. WSTĘPNA WALIDACJA 
+    // Sprawdzamy tutaj, żeby nie marnować czasu procesora na zbędne zapytania do DB.
     if (!email || !password) {
       return res.status(422).json({ error: "Email i hasło są wymagane." });
     }
@@ -24,14 +26,35 @@ router.post('/', async (req, res, next) => {
       return res.status(422).json({ error: "Hasło musi mieć co najmniej 6 znaków." });
     }
 
+    // 3. PRÓBA ZAPISU
+    // Tworzymy obiekt użytkownika i pozwalamy Mongoose sprawdzić zasady (Regex, unikalność).
     const user = new Users();
     user.email = email;
     user.setPassword(password);
-    await user.save();
+    
+    await user.save(); // Tu dzieje się walidacja w bazie
 
+    // Jeśli wszystko OK, zwracamy dane użytkownika i tokeny
     return res.json({ user: user.toAuthJSON() });
+
   } catch (err) {
-    if (err.code === 11000) return res.status(422).json({ error: "Ten adres email jest już zajęty." });
+    // OBSŁUGA BŁĘDÓW---
+
+    // A. Błąd duplikatu (kod 11000 od MongoDB)
+    // Dzieje się, gdy ktoś użyje maila, który już jest w bazie.
+    if (err.code === 11000) {
+      return res.status(422).json({ error: "Ten adres email jest już zajęty." });
+    }
+
+    // B. Błąd walidacji Mongoose (Regex)
+    // Dzieje się, gdy mail nie przejdzie testu formatu (np. brak @ lub kropki).
+    if (err.name === 'ValidationError') {
+      const message = Object.values(err.errors).map(val => val.message).join(', ');
+      return res.status(422).json({ error: message });
+    }
+
+    // C. Jeśli to inny, błąd (np. brak połączenia z bazą)
+    // Przesyłamy go do globalnego handlera w app.js.
     return next(err);
   }
 });
