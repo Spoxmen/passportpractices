@@ -7,6 +7,7 @@ const mongoose = require('mongoose');
 const errorHandler = require('errorhandler');
 const dbConfig = require('./config/database.config.js');
 const cookieParser = require('cookie-parser');
+const { xss } = require('express-xss-sanitizer');
 
 //Configure mongoose's promise to global promise
 mongoose.promise = global.Promise;
@@ -23,6 +24,7 @@ app.use(cors());
 app.use(require('morgan')('dev'));
 app.use(bodyParser.urlencoded({ extended: false }));
 app.use(bodyParser.json());
+app.use(xss());
 app.use(express.static(path.join(__dirname, 'public')));
 
 
