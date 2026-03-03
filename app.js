@@ -30,6 +30,25 @@ if(!isProduction) {
   app.use(errorHandler());
 }
 
+// Middleware: Podwójna garda CSRF (Custom Header Check)
+app.use((req, res, next) => {
+  // Sprawdzamy tylko metody, które modyfikują dane
+  const riskyMethods = ['POST', 'PUT', 'DELETE'];
+  
+  if (riskyMethods.includes(req.method)) {
+    // Express automatycznie sprawdza nagłówek X-Requested-With przez req.xhr
+    const isAjax = req.xhr || req.get('X-Requested-With') === 'XMLHttpRequest';
+
+    if (!isAjax) {
+      console.warn(`[SECURITY] Zablokowano potencjalny atak CSRF z adresu: ${req.ip}`);
+      return res.status(403).json({ 
+        errors: { message: "Dostęp zabroniony: Żądanie musi być wykonane przez AJAX." } 
+      });
+    }
+  }
+  next();
+});
+
 mongoose.set('debug', true);
 
 mongoose.connect(dbConfig.url).then(() => {
