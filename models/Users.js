@@ -5,7 +5,14 @@ const jwt = require('jsonwebtoken');
 const { Schema } = mongoose;
 
 const UsersSchema = new Schema({
-  email: String,
+email: {
+    type: String,
+    required: [true, 'Email jest wymagany'],
+    unique: true, // Blokuje duplikaty na poziomie bazy danych
+    lowercase: true, // Automatycznie zamienia "User@Email.com" na "user@email.com"
+    trim: true, // Usuwa przypadkowe spacje przed i po mailu
+    match: [/^\S+@\S+\.\S+$/, 'Proszę podać poprawny adres email'] // Prosty, skuteczny Regex
+  },
   hash: String,
   salt: String,
   refreshToken: String,
