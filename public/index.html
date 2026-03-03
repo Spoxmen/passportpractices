@@ -198,11 +198,17 @@ function loadGifts(uid = "") {
     });
 
     // POŁĄCZONA WALIDACJA I WYSYŁANIE REJESTRACJI
-    $("#btn-register").click(function() {
+$("#btn-register").click(function() {
         const email = $("#email").val();
         const pass = $("#password").val();
         const confirm = $("#password-confirm").val();
-if ($("#password-confirm").is(":hidden")) { $("#password-confirm").fadeIn(); return; }
+
+        if ($("#password-confirm").is(":hidden")) { 
+            $("#password-confirm").fadeIn(); 
+            return; 
+        }
+
+        // Walidacja front-endowa (zostaje bez zmian)
         if (pass !== confirm) {
             alert("Hasła nie są identyczne!");
             return;
@@ -212,7 +218,15 @@ if ($("#password-confirm").is(":hidden")) { $("#password-confirm").fadeIn(); ret
             return;
         }
 
-        const data = { user: { email: email, password: pass } };
+        // KLUCZOWA ZMIANA: Wysyłamy passwordConfirm do backendu
+        const data = { 
+            user: { 
+                email: email, 
+                password: pass,
+                passwordConfirm: confirm // Backend tego teraz wymaga
+            } 
+        };
+
         $.ajax({ 
             url: "/api/users", 
             type: "POST", 
@@ -234,8 +248,7 @@ if ($("#password-confirm").is(":hidden")) { $("#password-confirm").fadeIn(); ret
       $.ajax({ url: "/api/users/logout", type: "POST", xhrFields: { withCredentials: true }, success: function() { location.reload(); } });
     });
 
-    // --- ODZYSKIWANIE HASŁA ---
-    // 1. Kliknięcie "Przypomnij hasło"
+ // --- POPRAWIONE ZAPOMNIANE HASŁO (Czysty komunikat) ---
     $("#btn-forgot").click(function() {
         const email = $("#email").val().trim();
         if (!email) {
@@ -249,11 +262,12 @@ if ($("#password-confirm").is(":hidden")) { $("#password-confirm").fadeIn(); ret
             contentType: "application/json",
             data: JSON.stringify({ email: email }),
             success: function(response) {
-                alert(response.message + " (Zobacz konsolę serwera!)");
+                // Teraz wiadomość pochodzi prosto z backendu ("Kod został wysłany...")
+                alert(response.message);
                 $("#reset-password-panel").fadeIn(); 
             },
-            error: function() {
-                alert("Wystąpił błąd komunikacji z serwerem.");
+            error: function(err) {
+                alert("Błąd: " + (err.responseJSON ? err.responseJSON.error : "Błąd serwera"));
             }
         });
     });

@@ -5,6 +5,7 @@ const auth = require('../auth');
 const jwt = require('jsonwebtoken');
 const Users = mongoose.model('Users');
 const crypto = require('crypto');
+const sendEmail = require('../../config/mailer');
 
 // Ta funkcja obsługuje ścieżkę POST /api/users (Rejestracja)
 router.post('/', async (req, res, next) => {
@@ -159,69 +160,87 @@ router.get('/me', auth.required, async (req, res) => {
   }
 });
 
-// ZAPOMNIANE HASŁO
-router.post('/forgot-password', async (req, res) => {
+// 1. ZAPOMNIANE HASŁO - Generuje token, hashujemy go i wysyłamy maila
+router.post('/forgot-password', async (req, res, next) => {
   try {
     const user = await Users.findOne({ email: req.body.email });
+    
     if (!user) {
-      return res.json({ message: "Jeśli konto istnieje, wysłano na nie instrukcje." });
+      // Bezpieczeństwo: nie zdradzamy czy mail istnieje
+      return res.json({ message: "Jeśli konto istnieje, wysłano instrukcje na e-mail." });
     }
 
+    // A. Generujemy surowy token (to zobaczy użytkownik)
     const resetToken = crypto.randomBytes(20).toString('hex');
 
-    user.resetPasswordToken = resetToken;
-    user.resetPasswordExpires = Date.now() + 3600000;
+    // B. Hashujemy token (to ląduje w bazie - SHA-256)
+    const hashedToken = crypto.createHash('sha256').update(resetToken).digest('hex');
+
+    user.resetPasswordToken = hashedToken;
+    user.resetPasswordExpires = Date.now() + 3600000; // 1 godzina
     await user.save();
 
-    console.log(`\n=== LINK DO RESETU HASŁA ===\nTwój token to: ${resetToken}\n(Wkleisz go na froncie, żeby zmienić hasło dla ${user.email})\n============================\n`);
+    // C. Wysyłka prawdziwego maila (zamiast tylko console.log)
+    const message = `Twój kod do resetu hasła to: ${resetToken}\n\nWklej go w aplikacji, aby zmienić hasło. Kod wygaśnie za godzinę.`;
+    
+    try {
+      await sendEmail({
+        email: user.email,
+        subject: 'Resetowanie hasła - GiftApp',
+        message
+      });
+      res.json({ message: "Kod został wysłany na Twój e-mail." });
+    } catch (mailErr) {
+      // Jeśli mail nie wyjdzie, czyścimy tokeny w bazie, żeby nie wisiały
+      user.resetPasswordToken = undefined;
+      user.resetPasswordExpires = undefined;
+      await user.save();
+      return res.status(500).json({ error: "Błąd podczas wysyłania e-maila." });
+    }
 
-    res.json({ message: "Jeśli konto istnieje, wysłano na nie instrukcje." });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Błąd serwera." });
+    return next(err);
   }
 });
 
-// RESET HASŁA - POPRAWIONY (Usunięto zduplikowane const)
-router.post('/reset-password', async (req, res) => {
+// 2. RESET HASŁA - Odbiera surowy token, hashujemy go i sprawdza z bazą
+router.post('/reset-password', async (req, res, next) => {
   try {
-    // Jedna, wspólna deklaracja zmiennych z req.body
     const { token, newPassword, newPasswordConfirm } = req.body;
 
-    // 1. Walidacja kompletności
+    // Walidacja danych wejściowych
     if (!token || !newPassword || !newPasswordConfirm) {
-      return res.status(400).json({ error: "Wypełnij wszystkie pola." });
+      return res.status(422).json({ error: "Wypełnij wszystkie pola." });
     }
-
-    // 2. Czy hasła są takie same?
     if (newPassword !== newPasswordConfirm) {
-      return res.status(400).json({ error: "Hasła nie są identyczne." });
+      return res.status(422).json({ error: "Hasła nie są identyczne." });
+    }
+    if (newPassword.length < 6) {
+      return res.status(422).json({ error: "Hasło musi mieć min. 6 znaków." });
     }
 
-    // 3. Czy hasło jest dość mocne?
-    if (newPassword.length < 6) {
-      return res.status(400).json({ error: "Nowe hasło musi mieć min. 6 znaków." });
-    }
+    // --- KLUCZ: Musimy zahashować token od użytkownika, żeby znaleźć go w bazie ---
+    const hashedToken = crypto.createHash('sha256').update(token).digest('hex');
 
     const user = await Users.findOne({ 
-      resetPasswordToken: token, 
+      resetPasswordToken: hashedToken, // Porównujemy hashe!
       resetPasswordExpires: { $gt: Date.now() } 
     });
 
     if (!user) {
-      return res.status(400).json({ error: "Token resetowania hasła jest nieprawidłowy lub wygasł." });
+      return res.status(400).json({ error: "Kod jest nieprawidłowy lub wygasł." });
     }
 
+    // Ustawiamy nowe hasło i czyścimy pola resetu
     user.setPassword(newPassword);
     user.resetPasswordToken = undefined;
     user.resetPasswordExpires = undefined;
     await user.save();
 
-    res.json({ message: "Hasło zostało pomyślnie zmienione! Możesz się teraz zalogować." });
+    res.json({ message: "Hasło zostało zmienione! Możesz się teraz zalogować." });
     
   } catch (err) {
-    console.error("Błąd resetowania hasła:", err);
-    res.status(500).json({ error: "Wystąpił błąd serwera." });
+    return next(err);
   }
 });
 
