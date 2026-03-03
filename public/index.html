@@ -398,18 +398,49 @@ if ($("#password-confirm").is(":hidden")) { $("#password-confirm").fadeIn(); ret
     });
 
      // Obsługa błędów sesji na całym dokumencie
-    $(document).ajaxError(function(event, jqXHR) {
-        if (jqXHR.status === 401) {
-            console.warn("Brak aktywnej sesji lub sesja wygasła.");
-            $("#user-info").hide();
-            $("#user-selector").hide();
-            $("#main-content").hide();    
-            $("#guest-info").show();
-            $("#auth-panel").show();
-            $("#tab1").hide();
-            sessionStorage.removeItem("isLoggedIn");
+$(document).ajaxError(function(event, jqXHR, ajaxSettings, thrownError) {
+    // Jeśli serwer zwrócił 401 (Brak autoryzacji)
+    if (jqXHR.status === 401) {
+        
+        // ZABEZPIECZENIE: Jeśli błąd 401 wystąpił podczas SAMEGO odświeżania 
+        // lub podczas sprawdzania sesji na starcie (/me), to znaczy, że sesja definitywnie wygasła.
+        if (ajaxSettings.url === "/api/users/refresh" || ajaxSettings.url === "/api/users/me") {
+            console.warn("Sesja całkowicie wygasła. Wymagane ponowne logowanie.");
+            handleManualLogout(); 
+            return;
         }
-    });
+
+        // --- SILENT REFRESH ---
+        console.log("AccessToken wygasł. Próbuję odświeżyć sesję w tle...");
+        
+        $.ajax({
+            url: "/api/users/refresh",
+            type: "POST",
+            xhrFields: { withCredentials: true },
+            success: function() {
+                console.log("Sesja odświeżona! Ponawiam przerwane działanie...");
+                // TUTAJ DZIEJE SIĘ MAGIA: 
+                // Wykonujemy ponownie dokładnie to samo żądanie, które wcześniej zwróciło błąd 401
+                $.ajax(ajaxSettings); 
+            },
+            error: function() {
+                console.error("RefreshToken również wygasł. Wylogowuję...");
+                handleManualLogout();
+            }
+        });
+    }
+});
+
+// Pomocnicza funkcja, żeby nie powtarzać kodu wylogowania
+function handleManualLogout() {
+    $("#user-info").hide();
+    $("#user-selector").hide();
+    $("#main-content").hide();    
+    $("#guest-info").show();
+    $("#auth-panel").show();
+    $("#tab1").hide();
+    sessionStorage.removeItem("isLoggedIn");
+};
   });
 </script>
 <link rel="stylesheet" type="text/css" href="stylesheets/style.css">
