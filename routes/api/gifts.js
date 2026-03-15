@@ -104,13 +104,18 @@ router.put('/:id', auth.required, async (req, res) => {
     if (!gift.owner.equals(req.auth.id)) {
       return res.status(403).json({ error: "Nie masz uprawnień do edycji tego wpisu!" });
     }
+    if (req.body.title !== undefined) {
+      if (req.body.title.trim() === "") {
+        return res.status(422).json({ error: "Tytuł nie może być pusty!" });
+      }
+      gift.title = req.body.title;
+    }
 
-    // Nadpisujemy dane z bazy tym, co przyszło w formularzu
-    gift.author = req.body.author || gift.author;
-    gift.title = req.body.title || gift.title;
-    gift.date = req.body.date || gift.date;
-    gift.publisher = req.body.publisher || gift.publisher;
-    gift.availability = req.body.availability || gift.availability;
+// Nadpisujemy dane z bazy tylko wtedy, gdy pole zostało przysłane w żądaniu (nawet jeśli jest puste)
+if (req.body.author !== undefined) gift.author = req.body.author;
+if (req.body.date !== undefined) gift.date = req.body.date;
+if (req.body.publisher !== undefined) gift.publisher = req.body.publisher;
+if (req.body.availability !== undefined) gift.availability = req.body.availability;
 
     await gift.save();
     res.json({ message: "Dane zostały zaktualizowane!", gift: gift.displayForUser(req.auth.id) });
