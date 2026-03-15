@@ -374,11 +374,21 @@ $("#btn-register").click(function() {
       $("#tab2").show();
     });
 
-    // POPRAWIONY FORMAT WYSYŁANIA DANYCH DO API (Zwykły JSON)
+
     $("#btn3").click(function() {
+
+    const titleValue = $("#title1").val().trim();
+
+
+    if (!titleValue) {
+        alert("Błąd: Tytuł prezentu jest wymagany i nie może być pusty.");
+        $("#title1").focus(); 
+        return;
+    }
+        
         const dane = { 
             author: $("#author1").val(), 
-            title: $("#title1").val(), 
+            title: titleValue, 
             date: $("#date1").val(), 
             publisher: $("#publisher1").val(), 
             availability: $("#availability1").val() 
