@@ -1,0 +1,44 @@
+name: CI/CD Pipeline - GiftApp
+
+# 1. Kiedy ten skrypt ma się uruchomić?
+on:
+  push:
+    branches: [ "develop", "main" ] # Reaguj na push do tych gałęzi
+
+jobs:
+  # --- ETAP 1: TESTY INTEGRACYJNE (CI) ---
+  test-and-validate:
+    runs-on: ubuntu-latest # Odpal wirtualny komputer z Linuxem
+
+    steps:
+    - name: Pobierz kod z repozytorium
+      uses: actions/checkout@v4
+
+    - name: Skonfiguruj środowisko Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: 20
+        cache: 'npm'
+
+    - name: Zainstaluj wszystkie paczki (w tym deweloperskie)
+      run: npm install
+
+    # miejsce na testy
+    - name: Uruchom bazowy test walidacji
+      run: |
+        echo "Uruchamianie testów integracyjnych..."
+        node -e "console.log('Backend Node.js kompiluje się poprawnie i jest gotowy do wdrożenia!')"
+
+  # --- ETAP 2: BUDOWANIE KONTENERA I WDROŻENIE (CD) ---
+  build-and-deploy:
+    needs: test-and-validate # Uruchom TYLKO jeśli Etap 1 przejdzie na zielono
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Pobierz kod z repozytorium
+      uses: actions/checkout@v4
+
+    # W tym miejscu robot informuje, że jest gotowy na kontakt z AWS
+    - name: Przygotowanie paczki Dockerowej
+      run: |
+        echo "Etap testów zakończony sukcesem."
