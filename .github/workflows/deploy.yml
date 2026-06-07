@@ -38,7 +38,30 @@ jobs:
     - name: Pobierz kod z repozytorium
       uses: actions/checkout@v4
 
-    # W tym miejscu robot informuje, że jest gotowy na kontakt z AWS
-    - name: Przygotowanie paczki Dockerowej
+    - name: Zaloguj się do AWS IAM
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: eu-north-1 # Region Sztokholm
+
+    - name: Zaloguj się do rejestru AWS ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v2
+
+
+    - name: Budowanie, tagowanie i wysyłka obrazu do AWS ECR
+      env:
+        ECR_REGISTRY: ${{ secrets.AWS_ECR_REGISTRY }}
+        ECR_REPOSITORY: giftapp-backend
+        IMAGE_TAG: latest
       run: |
-        echo "Etap testów zakończony sukcesem."
+        echo "Rozpoczynam budowanie dla rejestru: $ECR_REGISTRY"
+        docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+        
+        echo "Loguję stan lokalnych obrazów przed wysyłką:"
+        docker images
+        
+        echo "Wypycham obraz do AWS..."
+        docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+        echo "Wysyłka zakończona!"
